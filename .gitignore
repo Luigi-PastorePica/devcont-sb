@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local development
+.env.local
+*.log
+*.pid
+
+# Devcontainer
+.devcontainer/.devcontainer
+
+# Token endpoint
+host-token-endpoint/gh_token_audit.log
+host-token-endpoint/*.pid
+
+# OS
+.DS_Store
+._.DS_Store
+**/.DS_Store
+**/._.DS_Store
