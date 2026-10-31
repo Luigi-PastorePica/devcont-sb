@@ -19,7 +19,7 @@ RUN groupadd -r dev -g 1001 \
 ENV CLAUDE_CODE_VERSION=latest
 RUN npm install --no-fund --no-audit --no-update-notifier -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
-RUN mkdir -p /home/dev/project /home/dev/artifacts /home/dev/scripts /home/dev/.devcontainer && chown -R dev:dev /home/dev/.devcontainer /home/dev/project /home/dev/artifacts /home/dev/scripts && chmod 755 /home/dev/.devcontainer
+RUN mkdir -p /home/dev/job-hunt-journal /home/dev/artifacts /home/dev/scripts /home/dev/.devcontainer && chown -R dev:dev /home/dev/.devcontainer /home/dev/job-hunt-journal /home/dev/artifacts /home/dev/scripts && chmod 755 /home/dev/.devcontainer
 USER dev
 WORKDIR /home/dev
 
@@ -28,7 +28,9 @@ RUN mkdir -p "$NVM_DIR" \
     && curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash \
     && . "$NVM_DIR/nvm.sh" && nvm install 22 && nvm alias default 22 && nvm use default
 
-ENV DEVCONTAINER_DIR=/home/dev/.devcontainer
+ENV DEFAULT_OWNER=Luigi-PastorePica
+ENV GH_REPO=job-hunt-journal
+ENV PROJECT_NAME=job-hunt-journal
 
 # Copy scripts into image (isolated, read-only by design — mounted read-only previously)
 COPY scripts /home/dev/scripts

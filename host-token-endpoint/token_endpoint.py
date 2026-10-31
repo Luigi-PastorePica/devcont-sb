@@ -25,7 +25,7 @@ import jwt, requests
 
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gh_token_audit.log")
 RATE_LIMIT = 300  # 5 minutes
-ALLOWED_REPOS = os.environ.get("ALLOWED_GH_REPOS", "job-hunt-journal").split(",")
+ALLOWED_REPOS = os.environ.get("ALLOWED_GH_REPOS").split(",")
 
 last_request = {}  # (container_id, repo) -> timestamp
 

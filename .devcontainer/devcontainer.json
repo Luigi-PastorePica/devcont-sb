@@ -1,10 +1,10 @@
 {
-  "runArgs": ["--name", "job-hunt-journal-cc"],
-  "name": "${localEnv:PROJECT_NAME:-job-hunt-journal}-ccr",
+  "name": "job-hunt-journal-ccr",
   "build": {
     "dockerfile": "Dockerfile"
   },
   "remoteUser": "dev",
+  "runArgs": ["--name", "job-hunt-journal-cc"],
 
   "mounts": [
     {
@@ -19,6 +19,13 @@
       "target": "/home/dev/artifacts",
       "type": "bind",
       "consistency": "cached"
+    },
+    {
+      "source": "${localWorkspaceFolder}",
+      "target": "/workspaces/host-repo",
+      "type": "bind",
+      "consistency": "cached",
+      "readonly": true
     }
   ],
   "customizations": {
@@ -40,9 +47,9 @@
     "no_proxy": "127.0.0.1,localhost,::1"
   },
 
-  "postCreateCommand": "bash -c 'bash /home/dev/scripts/fetch-gh-token.sh 9876 >> /tmp/postcreate.log 2>&1; bash /home/dev/scripts/setup-container.sh >> /tmp/postcreate.log 2>&1'",
+  "postCreateCommand": "bash /home/dev/scripts/fetch-gh-token.sh 9876 >> /tmp/postcreate.log 2>&1; echo '=== FETCH GH TOKEN COMPLETE ===' >> /tmp/postcreate.log 2>&1; bash /home/dev/scripts/setup-container.sh >> /tmp/postcreate.log 2>&1",
 
-  "workspaceFolder": "/home/dev/project",
+  "workspaceFolder": "/home/dev/job-hunt-journal",
   "remoteEnv": {
     "PATH": "/home/dev/.local/bin:/home/dev/.nvm/versions/node/current/bin:/usr/local/bin:/usr/bin:/bin"
   },
