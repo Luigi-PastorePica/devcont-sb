@@ -48,6 +48,7 @@
   },
 
   "postCreateCommand": "bash /home/dev/scripts/fetch-gh-token.sh 9876 >> /tmp/postcreate.log 2>&1; echo '=== FETCH GH TOKEN COMPLETE ===' >> /tmp/postcreate.log 2>&1; bash /home/dev/scripts/setup-container.sh >> /tmp/postcreate.log 2>&1",
+  "postStartCommand": "bash -c 'echo \"Re-asserting isolation...\"; git config --global --unset credential.helper 2>/dev/null || true; git config --global credential.helper \"/home/dev/.git-credential-token\" 2>/dev/null || true; unset SSH_AUTH_SOCK 2>/dev/null || true; export GIT_CONFIG_NOSYSTEM=1; echo \"Post-start isolation complete.\"' >> /tmp/postcreate.log 2>&1",
 
   "workspaceFolder": "/home/dev/job-hunt-journal",
   "remoteEnv": {

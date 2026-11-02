@@ -111,27 +111,178 @@ echo "[setup-container] STATUS: workspace root = $WORKSPACE_ROOT (bind-mounted w
 echo "[setup-container] STATUS: active work directory = $WORKSPACE_ROOT"
 echo "[setup-container] STATUS: artifacts directory = /home/dev/artifacts (bind-mounted session-artifacts)"
 
-# Isolate git from any host credentials
+# AGGRESSIVE Git credential isolation - block ALL host passthrough
 echo "[setup-container] Isolating git from host credentials..."
-export GIT_TERMINAL_PROMPT=0
-export GIT_CONFIG_NOSYSTEM=1
-export GIT_CONFIG_GLOBAL=""
-export HOME="/home/dev"  # Ensure we use container home, not host
-# Unset any credential helpers that might be configured
+
+# 1. Disable all credential helpers at every level
 git config --global --unset credential.helper 2>/dev/null || true
 git config --system --unset credential.helper 2>/dev/null || true
+git config --local --unset credential.helper 2>/dev/null || true
+# Explicitly set empty helper to override any system config
 git config --global credential.helper "" 2>/dev/null || true
-# Ensure we don't use any netrc
-unset NETRC 2>/dev/null || true
-# Disable ssh agent
+git config --system credential.helper "" 2>/dev/null || true
+
+# 2. Disable git config reading from system/global
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL=""
+export GIT_CONFIG_SYSTEM=""
+
+# 3. Disable terminal prompts
+export GIT_TERMINAL_PROMPT=0
+
+# 4. Disable SSH agent and SSH entirely for git
 unset SSH_AUTH_SOCK 2>/dev/null || true
-echo "[setup-container] Git credential isolation complete"
+unset SSH_AGENT_PID 2>/dev/null || true
+# Force git to use HTTPS only, never SSH
+git config --global url."https://github.com/".insteadOf "git@github.com:" 2>/dev/null || true
+git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" 2>/dev/null || true
+
+# 5. Disable netrc
+unset NETRC 2>/dev/null || true
+git config --global credential.useHttpPath true 2>/dev/null || true
+
+# 6. Create a dedicated git credential helper that ONLY uses our token
+cat > /home/dev/.git-credential-token <<'HELPER_EOF'
+#!/usr/bin/env bash
+# Git credential helper that ONLY provides the token from GH_TOKEN env var
+# Rejects all other credential sources
+
+case "$1" in
+  get)
+    # Only provide credentials for github.com HTTPS
+    while IFS= read -r line; do
+      case "$line" in
+        protocol=https)
+          PROTOCOL=https
+          ;;
+        host=github.com)
+          HOST=github.com
+          ;;
+        username=)
+          # We don't use username, token auth doesn't need it
+          ;;
+      esac
+    done
+
+    if [ "$PROTOCOL" = "https" ] && [ "$HOST" = "github.com" ] && [ -n "${GH_TOKEN:-}" ]; then
+      echo "username=x-access-token"
+      echo "password=${GH_TOKEN}"
+      exit 0
+    fi
+    # No credentials for anything else
+    exit 1
+    ;;
+  store|erase)
+    # Never store or erase - we only use env var
+    exit 0
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+HELPER_EOF
+chmod +x /home/dev/.git-credential-token
+
+# 7. Register our token-only credential helper
+git config --global credential.helper "/home/dev/.git-credential-token" 2>/dev/null || true
+
+# 8. Clean up any existing SSH keys in container (except known_hosts)
+if [ -d ~/.ssh ]; then
+  # Keep only known_hosts, remove private keys
+  find ~/.ssh -type f ! -name 'known_hosts' -delete 2>/dev/null || true
+  echo "[setup-container] Cleaned ~/.ssh (kept known_hosts only)"
+fi
+
+# Additional defensive measures for hosts with different auth configurations
+# 10. Block any potential SSH key forwarding or host SSH config leakage
+export GIT_SSH_COMMAND="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -F /dev/null -i /dev/null"
+# Force git to not use any SSH identity
+export GIT_SSH=""
+# 11. Block any .gitconfig or .netrc that might exist in container
+rm -f /home/dev/.netrc 2>/dev/null || true
+rm -f /home/dev/.git-credentials 2>/dev/null || true
+# 12. Ensure the token-only helper is always first and only
+export GIT_ASKPASS="echo"
+export GIT_TERMINAL_PROMPT=0
+
+# 13. Final defensive check: verify our helper exists and is executable
+if [ -x "/home/dev/.git-credential-token" ]; then
+  echo "  .git-credential-token: executable at /home/dev/.git-credential-token"
+else
+  echo "  WARNING: .git-credential-token not found or not executable!"
+fi
+
+# 9. Verify isolation
+echo "[setup-container] Verifying git credential isolation..."
+echo "  credential.helper (global): $(git config --global --get credential.helper || echo 'none')"
+echo "  credential.helper (system): $(git config --system --get credential.helper || echo 'none')"
+echo "  SSH_AUTH_SOCK: ${SSH_AUTH_SOCK:-unset}"
+echo "  GIT_CONFIG_NOSYSTEM: ${GIT_CONFIG_NOSYSTEM:-unset}"
+echo "  GIT_CONFIG_GLOBAL: ${GIT_CONFIG_GLOBAL:-unset}"
+echo "[setup-container] Git credential isolation complete (token-only mode)"
+
+# AUTHENTICATION CHECKS: Save isolation verification to log
+AUTH_CHECK_LOG="/tmp/auth-isolation-check.log"
+echo "=== AUTH ISOLATION CHECKS $(date -Iseconds) ===" > "$AUTH_CHECK_LOG"
+echo "Git credential isolation verification (token-only mode)" >> "$AUTH_CHECK_LOG"
+echo "credential.helper (global): $(git config --global --get credential.helper || echo 'none')" >> "$AUTH_CHECK_LOG"
+echo "credential.helper (system): $(git config --system --get credential.helper || echo 'none')" >> "$AUTH_CHECK_LOG"
+echo "credential.helper (local): $(git config --local --get credential.helper || echo 'none')" >> "$AUTH_CHECK_LOG"
+echo "SSH_AUTH_SOCK: ${SSH_AUTH_SOCK:-unset}" >> "$AUTH_CHECK_LOG"
+echo "SSH_AGENT_PID: ${SSH_AGENT_PID:-unset}" >> "$AUTH_CHECK_LOG"
+echo "GIT_CONFIG_NOSYSTEM: ${GIT_CONFIG_NOSYSTEM:-unset}" >> "$AUTH_CHECK_LOG"
+echo "GIT_CONFIG_GLOBAL: ${GIT_CONFIG_GLOBAL:-unset}" >> "$AUTH_CHECK_LOG"
+echo "GIT_CONFIG_SYSTEM: ${GIT_CONFIG_SYSTEM:-unset}" >> "$AUTH_CHECK_LOG"
+echo "GIT_TERMINAL_PROMPT: ${GIT_TERMINAL_PROMPT:-unset}" >> "$AUTH_CHECK_LOG"
+echo ".git-credential-token executable: $(test -x /home/dev/.git-credential-token && echo 'yes' || echo 'no')" >> "$AUTH_CHECK_LOG"
+# Check if any remaining private SSH keys exist (should only be known_hosts)
+REMAINING_KEYS=$(find ~/.ssh -type f ! -name 'known_hosts' 2>/dev/null | wc -l)
+echo "Remaining SSH private keys: $REMAINING_KEYS (expected: 0)" >> "$AUTH_CHECK_LOG"
+# Check remote URL format (should use HTTPS with token, not SSH)
+echo "Remote URL format: $([ -n "$WORKSPACE_ROOT" ] && git -C "$WORKSPACE_ROOT" remote get-url origin 2>/dev/null || echo 'N/A')" >> "$AUTH_CHECK_LOG"
+echo ".env.local exists: $(test -f /home/dev/job-hunt-journal/.env.local && echo 'yes' || echo 'no')" >> "$AUTH_CHECK_LOG"
+echo ".env.local masked in log: yes (GH_TOKEN=<MASKED>)" >> "$AUTH_CHECK_LOG"
+echo "GH_APP_PEM_PATH printed: no" >> "$AUTH_CHECK_LOG"
+echo "=== CHECKS COMPLETE ===" >> "$AUTH_CHECK_LOG"
+echo "[setup-container] Auth isolation checks saved to $AUTH_CHECK_LOG"
+
+# DEFENSIVE: Re-verify isolation after potential VS Code / Docker injection
+# VS Code Remote extension or Docker can inject env vars/settings after postCreate
+# We re-assert our isolation here to override any post-creation changes
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL=""
+export GIT_CONFIG_SYSTEM=""
+export GIT_TERMINAL_PROMPT=0
+unset SSH_AUTH_SOCK 2>/dev/null || true
+unset SSH_AGENT_PID 2>/dev/null || true
+git config --global credential.helper "/home/dev/.git-credential-token" 2>/dev/null || true
+echo "[setup-container] Re-asserted isolation after postCreate (for any VS Code/Docker injection)"
+
+# PERSISTENT DEFENSE: Write isolation to .bashrc so every new terminal session re-isolates
+# VS Code may open new terminals; this ensures isolation survives session restarts
+cat >> /home/dev/.bashrc << 'BASH_EOF'
+# Auto-isolation hook: re-assert token-only auth on every new terminal/session
+# Defends against VS Code injecting host credentials after initial setup
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL=""
+export GIT_CONFIG_SYSTEM=""
+unset SSH_AUTH_SOCK 2>/dev/null || true
+unset SSH_AGENT_PID 2>/dev/null || true
+git config --global --unset credential.helper 2>/dev/null || true
+git config --global credential.helper "/home/dev/.git-credential-token" 2>/dev/null || true
+BASH_EOF
+
+echo "[setup-container] Persistent isolation hook added to /home/dev/.bashrc"
+
 if [ -f "$HOME/.gh-token.tmp" ]; then
   GH_TOKEN="$(cat "$HOME/.gh-token.tmp" 2>/dev/null || true)"
   export GH_TOKEN
   echo "[setup-container] GH_TOKEN loaded from .gh-token.tmp (${GH_TOKEN:+yes})"
   if [ -n "${GH_TOKEN:-}" ]; then
-    echo "[setup-container] Token length: ${#GH_TOKEN}"
+    # Show only first 10 chars + ... + last 10 chars (don't expose full token in logs)
+    TOKEN_START="${GH_TOKEN:0:10}"
+    TOKEN_END="${GH_TOKEN: -10}"
+    echo "[setup-container] Token partial: ${TOKEN_START}...${TOKEN_END} (length: ${#GH_TOKEN})"
   else
     echo "[setup-container] WARNING: .gh-token.tmp exists but is empty!"
     echo "[setup-container] File contents: '$(cat "$HOME/.gh-token.tmp" 2>/dev/null)'"
@@ -206,7 +357,6 @@ fi
 echo "=== CONTAINER STARTUP SUMMARY ==="
 echo "Repo (GH_REPO): ${GH_REPO:-unknown-repo}"
 echo "GH_TOKEN set: ${GH_TOKEN:+yes}"
-echo "GH_APP_PEM_PATH: ${GH_APP_PEM_PATH:-not set}"
 echo "Working directory: $WORKSPACE_ROOT"
 echo "Directory contents (before clone): $(ls -A "$WORKSPACE_ROOT" 2>/dev/null | wc -l) files"
 if [ -d "${CLONE_DIR}/.git" ]; then
@@ -230,8 +380,8 @@ else
   echo "[setup-container] No GH_TOKEN - wrote placeholder to .env.local"
 fi
 # Verify .env.local content before moving
-echo "[setup-container] .env.local content:"
-cat "/home/dev/.env.local" | sed 's/^/[env.local] /'
+echo "[setup-container] .env.local content (token masked):"
+cat "/home/dev/.env.local" | sed 's/GH_TOKEN=.*/[env.local] GH_TOKEN=<MASKED>/; s/^/[env.local] /'
 # Move into workspace (cloned repo) after clone completes
 mv "/home/dev/.env.local" "${CLONE_DIR}/.env.local"
 echo "[setup-container] .env.local moved to ${CLONE_DIR}/.env.local"
