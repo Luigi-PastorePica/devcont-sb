@@ -102,8 +102,43 @@ if [ -n "$RESPONSE" ]; then
     VERIFIED_TOKEN="$(cat "$TOKEN_FILE" 2>/dev/null)"
     if [ "$VERIFIED_TOKEN" = "$TOKEN" ]; then
       export GH_TOKEN="$TOKEN"
-      echo "[fetch-gh-token] Token fetched (${TOKEN:0:8}...) for repo $GH_REPO (GH_TOKEN exported)"
+      # Show masked version only (first 8 chars + ... + last 8 chars)
+      START="${TOKEN:0:8}"; END="${TOKEN: -8}"
+      echo "[fetch-gh-token] Token fetched (${START}...${END}) for repo $GH_REPO (GH_TOKEN exported)"
       echo "[fetch-gh-token] Token file verified at $TOKEN_FILE"
+
+      # Write/update .env.local: handle both parent-level and workspace-level locations
+      OWNER="${DEFAULT_OWNER:-unknown-owner}"
+      DEV_HOME="/home/dev"
+      ENV_PARENT="${DEV_HOME}/.env.local"
+      ENV_WORKSPACE="${DEV_HOME}/${GH_REPO}/.env.local"
+
+      # Check which .env.local exists and update/replace GH_TOKEN line accordingly
+      if [ -f "$ENV_PARENT" ]; then
+        # Update existing line or add new one at parent level
+        if grep -q "^GH_TOKEN=" "$ENV_PARENT"; then
+          sed -i "s/^GH_TOKEN=.*/GH_TOKEN=${TOKEN}/" "$ENV_PARENT"
+        else
+          echo "GH_TOKEN=${TOKEN}" >> "$ENV_PARENT"
+        fi
+        echo "[fetch-gh-token] Updated .env.local at $ENV_PARENT"
+      elif [ -f "$ENV_WORKSPACE" ]; then
+        # Update existing line or add new one at workspace level
+        if grep -q "^GH_TOKEN=" "$ENV_WORKSPACE"; then
+          sed -i "s/^GH_TOKEN=.*/GH_TOKEN=${TOKEN}/" "$ENV_WORKSPACE"
+        else
+          echo "GH_TOKEN=${TOKEN}" >> "$ENV_WORKSPACE"
+        fi
+        echo "[fetch-gh-token] Updated .env.local at $ENV_WORKSPACE"
+      else
+        # Create new .env.local at parent level, then move to workspace
+        echo "GH_REPO=${GH_REPO}" > "$ENV_PARENT"
+        echo "OWNER=${OWNER}" >> "$ENV_PARENT"
+        echo "GH_TOKEN=${TOKEN}" >> "$ENV_PARENT"
+        mkdir -p "/home/dev/${GH_REPO}"
+        mv "$ENV_PARENT" "${ENV_WORKSPACE}" 2>/dev/null || echo "[fetch-gh-token] Could not move .env.local to workspace"
+        echo "[fetch-gh-token] Created .env.local at $ENV_WORKSPACE"
+      fi
     else
       echo "[fetch-gh-token] ERROR: Token file verification failed!"
       echo "[fetch-gh-token] Expected: ${TOKEN:0:8}..., Got: ${VERIFIED_TOKEN:0:8}..."

@@ -50,14 +50,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         repo = self.headers.get("X-GH-Repo", "unknown")
 
         # HUMAN ACTION REQUIRED: verify ALLOWED_REPOS matches your GH App installation repos.
-        if repo not in [r.strip() for r in ALLOWED_REPOS]:
+        allowed_repos = [r.strip() for r in ALLOWED_REPOS] if ALLOWED_REPOS else []
+        # Check full repo name or short repo name
+        repo_matches = any(repo == allowed or repo == allowed.split("/")[-1] for allowed in allowed_repos)
+        if not repo_matches:
             self.send_response(403)
             self.end_headers()
             self.wfile.write(json.dumps({"error": "Repo not allowed"}).encode())
             logging.info("REJECTED_REPO",
-                extra={"container": container_id, "repo": repo})
+                extra={"container": container_id, "repo": repo, "allowed": allowed_repos})
             return
 
+        # Rate limit only — duration fixed by user (not agent-controlled)
         key = (container_id, repo)
         now = time.time()
         last = last_request.get(key, 0)
@@ -150,6 +154,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
+        # Token duration controlled by endpoint/user only (not agent-controlled)
         self.wfile.write(json.dumps({"token": token, "expires_in": 3600, "repo_scoped": repo}).encode())
 
 if __name__ == "__main__":
