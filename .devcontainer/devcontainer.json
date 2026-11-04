@@ -1,0 +1,62 @@
+{
+  "name": "job-hunt-journal-ccr",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "dev",
+  "runArgs": ["--name", "job-hunt-journal-cc"],
+
+  "mounts": [
+    {
+      "source": "${localEnv:HOME}/.claude",
+      "target": "/home/dev/.claude-host",
+      "type": "bind",
+      "consistency": "consistent",
+      "readonly": true
+    },
+    {
+      "source": "${localWorkspaceFolder}/.devcontainer/session-artifacts",
+      "target": "/home/dev/artifacts",
+      "type": "bind",
+      "consistency": "cached"
+    },
+    {
+      "source": "${localWorkspaceFolder}",
+      "target": "/workspaces/host-repo",
+      "type": "bind",
+      "consistency": "cached",
+      "readonly": true
+    }
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+      ]
+    }
+  },
+
+  "forwardPorts": [3456, 3457],
+
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/dev/.claude",
+    "ANTHROPIC_BASE_URL": "http://host.docker.internal:3456",
+    "ANTHROPIC_API_BASE_URL": "http://host.docker.internal:3456",
+    "CLAUDE_AGENT_API_BASE_URL": "http://host.docker.internal:3456",
+    "NO_PROXY": "127.0.0.1,localhost,::1",
+    "no_proxy": "127.0.0.1,localhost,::1"
+  },
+
+  "postCreateCommand": "bash /home/dev/scripts/fetch-gh-token.sh 9876 >> /tmp/postcreate.log 2>&1; echo '=== FETCH GH TOKEN COMPLETE ===' >> /tmp/postcreate.log 2>&1; bash /home/dev/scripts/setup-container.sh >> /tmp/postcreate.log 2>&1",
+  "postStartCommand": "bash -c 'echo \"Re-asserting isolation...\"; git config --global --unset credential.helper 2>/dev/null || true; git config --global credential.helper \"/home/dev/.git-credential-token\" 2>/dev/null || true; unset SSH_AUTH_SOCK 2>/dev/null || true; export GIT_CONFIG_NOSYSTEM=1; echo \"Post-start isolation complete.\"' >> /tmp/postcreate.log 2>&1",
+
+  "workspaceFolder": "/home/dev/job-hunt-journal",
+  "remoteEnv": {
+    "PATH": "/home/dev/.local/bin:/home/dev/.nvm/versions/node/current/bin:/usr/local/bin:/usr/bin:/bin"
+  },
+
+  "features": {},
+  "hostRequirements": {
+    "memory": "2gb"
+  }
+}
